@@ -1,1 +1,342 @@
 # ernst-rpm-game
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hit 30.000 and beat ERNST</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      font-family: Arial, sans-serif;
+      color: white;
+      overflow: hidden;
+    }
+
+    .header {
+      text-align: center;
+      margin-top: 20px;
+      animation: breathing 3s infinite ease-in-out;
+    }
+
+    .header h1 {
+      font-size: 5rem;
+      color: #c00;
+      font-weight: bold;
+      margin: 0;
+    }
+
+    .logo {
+      height: 100px;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .tachometer-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 800px;
+      height: 800px;
+    }
+
+    canvas {
+      position: absolute;
+      z-index: 0;
+    }
+
+    .controls {
+      position: absolute;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      display: flex;
+      gap: 30px;
+    }
+
+    .button {
+      background: radial-gradient(#f00, #800);
+      border: 3px solid #fff;
+      color: #fff;
+      padding: 25px 40px;
+      font-size: 24px;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 20px #f00;
+    }
+
+    .table-container {
+      position: absolute;
+      right: 40px;
+      top: 150px;
+      width: 350px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 20px;
+      border-radius: 15px;
+    }
+
+    .chart-container {
+      position: absolute;
+      left: 40px;
+      top: 150px;
+      width: 350px;
+      height: 300px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 20px;
+      border-radius: 15px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      color: white;
+    }
+
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #888;
+    }
+
+    th {
+      color: #ff0;
+    }
+
+    .input-container {
+      position: absolute;
+      top: 80%;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      display: flex;
+      gap: 10px;
+    }
+
+    .input-container input {
+      padding: 10px;
+      font-size: 18px;
+    }
+
+    @keyframes breathing {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>HIT 30.000 RPM to beat</h1>
+    <img src="ERNST-Logo.png" alt="Logo" class="logo" />
+  </div>
+
+  <div class="tachometer-container">
+    <canvas id="tachometerCanvas" width="800" height="800"></canvas>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="rpmChart"></canvas>
+  </div>
+
+  <div class="controls">
+    <button class="button" id="startButton">Start</button>
+    <button class="button" id="stopButton" disabled>Stop</button>
+    <button class="button" id="resetButton">Reset</button>
+  </div>
+
+  <div class="input-container">
+    <input type="text" id="playerName" placeholder="Spielername eingeben" />
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Platz</th>
+          <th>Spieler</th>
+          <th>RPM</th>
+        </tr>
+      </thead>
+      <tbody id="scoreTable">
+        <!-- Dynamisch gefüllt -->
+      </tbody>
+    </table>
+  </div>
+
+  <audio id="startSound" src="start.mp3"></audio>
+  <audio id="stopSound" src="stop.mp3"></audio>
+
+  <script>
+    const canvas = document.getElementById("tachometerCanvas");
+    const ctx = canvas.getContext("2d");
+    const rpmChartCtx = document.getElementById("rpmChart").getContext("2d");
+
+    let angle = 0;
+    let counter = 0;
+    let interval;
+    let startTime;
+    let isRunning = false;
+    const scoreboard = [];
+
+    const rpmBuckets = [0, 0, 0, 0, 0, 0];
+
+    const chart = new Chart(rpmChartCtx, {
+      type: 'bar',
+      data: {
+        labels: ["0–10k", "10–20k", "20–29.5k", "29.5–30.5k", "30.5–35k", ">35k"],
+        datasets: [{
+          label: 'Spieleranzahl',
+          data: rpmBuckets,
+          backgroundColor: '#0ff'
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: 'white' } },
+          y: { ticks: { color: 'white' }, beginAtZero: true }
+        }
+      }
+    });
+
+    function drawTacho() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const radius = 300;
+
+      // Background
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 30, 0, 2 * Math.PI);
+      ctx.fillStyle = '#111';
+      ctx.fill();
+
+      const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+      gradient.addColorStop(0.0, 'red');
+      gradient.addColorStop(0.3, 'yellow');
+      gradient.addColorStop(0.5, 'lime');
+      gradient.addColorStop(0.7, 'yellow');
+      gradient.addColorStop(1.0, 'red');
+
+      for (let i = 0; i <= 10; i++) {
+        const startAngle = Math.PI * 0.75 + i * (Math.PI * 1.5 / 10);
+        const endAngle = startAngle + (Math.PI * 1.5 / 10);
+        ctx.beginPath();
+        ctx.shadowColor = gradient;
+        ctx.shadowBlur = 25;
+        ctx.lineWidth = 20;
+        ctx.strokeStyle = gradient;
+        ctx.arc(cx, cy, radius, startAngle, endAngle);
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+
+      for (let i = 0; i <= 10; i++) {
+        const angle = Math.PI * 0.75 + i * (Math.PI * 1.5 / 10);
+        const x1 = cx + Math.cos(angle) * (radius - 20);
+        const y1 = cy + Math.sin(angle) * (radius - 20);
+        const x2 = cx + Math.cos(angle) * (radius + 20);
+        const y2 = cy + Math.sin(angle) * (radius + 20);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const label = i * 5000;
+        ctx.fillStyle = label === 30000 ? "yellow" : "white";
+        ctx.font = label === 30000 ? "bold 24px Arial" : "18px Arial";
+        const tx = cx + Math.cos(angle) * (radius + 50);
+        const ty = cy + Math.sin(angle) * (radius + 50);
+        ctx.fillText(label, tx - 20, ty + 10);
+      }
+
+      const needleAngle = Math.PI * 0.75 + (Math.PI * 1.5 * (counter / 50000));
+      const nx = cx + Math.cos(needleAngle) * radius;
+      const ny = cy + Math.sin(needleAngle) * radius;
+      ctx.shadowColor = "red";
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(nx, ny);
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Digital display
+      ctx.fillStyle = "white";
+      ctx.font = "48px monospace";
+      ctx.shadowColor = "cyan";
+      ctx.shadowBlur = 15;
+      ctx.textAlign = "center";
+      ctx.fillText(counter.toFixed(1) + " RPM", cx, cy + radius / 1.5);
+      ctx.shadowBlur = 0;
+    }
+
+    function update() {
+      drawTacho();
+      if (!isRunning) return;
+      const elapsed = (Date.now() - startTime) / 1000;
+      counter = Math.min(50000, (elapsed / 15) * 50000);
+    }
+
+    function updateScoreboard() {
+      const tbody = document.getElementById("scoreTable");
+      tbody.innerHTML = scoreboard.slice(0, 5).map((entry, i) =>
+        `<tr><td>${i + 1}</td><td>${entry.name}</td><td>${entry.rpm.toFixed(1)}</td></tr>`
+      ).join("");
+    }
+
+    function updateBuckets(rpm) {
+      if (rpm <= 10000) rpmBuckets[0]++;
+      else if (rpm <= 20000) rpmBuckets[1]++;
+      else if (rpm < 29500) rpmBuckets[2]++;
+      else if (rpm <= 30500) rpmBuckets[3]++;
+      else if (rpm <= 35000) rpmBuckets[4]++;
+      else rpmBuckets[5]++;
+      chart.update();
+    }
+
+    document.getElementById("startButton").onclick = () => {
+      if (isRunning) return;
+      document.getElementById("startSound").play();
+      counter = 0;
+      startTime = Date.now();
+      isRunning = true;
+      document.getElementById("stopButton").disabled = false;
+      interval = setInterval(update, 50);
+    };
+
+    document.getElementById("stopButton").onclick = () => {
+      if (!isRunning) return;
+      document.getElementById("stopSound").play();
+      isRunning = false;
+      clearInterval(interval);
+      document.getElementById("stopButton").disabled = true;
+      const name = document.getElementById("playerName").value || "Unbekannt";
+      scoreboard.push({ name, rpm: counter, diff: Math.abs(30000 - counter) });
+      scoreboard.sort((a, b) => a.diff - b.diff);
+      updateBuckets(counter);
+      updateScoreboard();
+    };
+
+    document.getElementById("resetButton").onclick = () => {
+      counter = 0;
+      isRunning = false;
+      clearInterval(interval);
+      drawTacho();
+    };
+
+    drawTacho();
+  </script>
+</body>
+</html>
